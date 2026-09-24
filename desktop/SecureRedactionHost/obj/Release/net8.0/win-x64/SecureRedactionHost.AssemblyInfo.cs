@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SecureRedactionHost")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+baed378c11de1e6ec5beb7e5d0e7ac424305427b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+791e5d36a1840807c233390160691c7c42b30cfd")]
 [assembly: System.Reflection.AssemblyProductAttribute("SecureRedactionHost")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SecureRedactionHost")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

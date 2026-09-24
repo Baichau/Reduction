@@ -1,14 +1,18 @@
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.Security;
 using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
 
-public sealed class PythonWorker : IAsyncDisposable
+// Оборачиваем класс воркера, чтобы он был доступен внутри сборки
+internal sealed class PythonWorker : IAsyncDisposable
 {
     private readonly Process process;
 
     private PythonWorker(Process process) => this.process = process;
 
-    // ФИКС: Принимаем сгенерированный динамический токен безопасности
     public static PythonWorker Start(string pythonExecutable, string workingDirectory, string secureToken)
     {
         var expectedHash = Environment.GetEnvironmentVariable("REDACTION_WORKER_SHA256");
@@ -26,13 +30,13 @@ public sealed class PythonWorker : IAsyncDisposable
             FileName = pythonExecutable,
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
-            CreateNoWindow = true,         // ФИКС: Запрещаем создавать новое окно консоли воркера
-            WindowStyle = ProcessWindowStyle.Hidden, // ФИКС: Полностью прячем процесс в фон
+            CreateNoWindow = true,         // Запрещаем создавать новое окно консоли воркера
+            WindowStyle = ProcessWindowStyle.Hidden, // Полностью прячем процесс в фон
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
 
-        // ФИКС: Безопасно передаем сгенерированный токен воркеру через переменные окружения процесса
+        // Безопасно передаем сгенерированный токен воркеру через переменные окружения процесса
         startInfo.Environment["REDACTION_PRODUCTION_TOKEN"] = secureToken;
 
         var frontendPath = Path.GetFullPath(Path.Combine(workingDirectory, "..", "frontend"));
@@ -40,8 +44,14 @@ public sealed class PythonWorker : IAsyncDisposable
         {
             startInfo.Environment["REDACTION_FRONTEND_PATH"] = frontendPath;
         }
-        startInfo.Environment["REDACTION_DB_PATH"] = Path.Combine(workingDirectory, "data", "redaction.db");
-        startInfo.Environment["REDACTION_PROFILES_PATH"] = Path.Combine(workingDirectory, "data", "profiles.json");
+
+        // КРИТИЧЕСКИЙ ФИКС ДЛЯ ОШИБКИ SQLITE3: Создаем папку data до старта Python
+        var dataDirectory = Path.Combine(workingDirectory, "data");
+        Directory.CreateDirectory(dataDirectory);
+
+        startInfo.Environment["REDACTION_DB_PATH"] = Path.Combine(dataDirectory, "redaction.db");
+        startInfo.Environment["REDACTION_PROFILES_PATH"] = Path.Combine(dataDirectory, "profiles.json");
+        
         var parserPath = Path.Combine(Path.GetDirectoryName(pythonExecutable) ?? workingDirectory, "LocalRedactionParser.exe");
         if (File.Exists(parserPath))
         {
@@ -95,6 +105,7 @@ public sealed class PythonWorker : IAsyncDisposable
     }
 }
 
+// Классическое объявление главной точки входа
 public static class Program
 {
     public static async Task Main()
@@ -113,7 +124,13 @@ public static class Program
         await using var worker = PythonWorker.Start(pythonExecutable, backendPath, secureToken);
         Console.WriteLine("Local redaction worker running securely in background.");
         
-        string appUrl = $"http://127.0.0.1:8765/?token={Uri.EscapeDataString(secureToken)}";
+        // ЖЕСТКИЙ ФИКС ОПЕЧАТКИ: Безопасно собираем URL через UriBuilder
+        var urlBuilder = new UriBuilder("http", "127.0.0.1", 8765)
+        {
+            Query = $"token={Uri.EscapeDataString(secureToken)}"
+        };
+        string appUrl = urlBuilder.ToString();
+        
         Console.WriteLine($"Opening application interface: {appUrl}");
         Process.Start(new ProcessStartInfo(appUrl) { UseShellExecute = true });
 
