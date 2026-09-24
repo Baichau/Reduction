@@ -36,6 +36,13 @@ def test_api_requires_local_token() -> None:
     assert unauthenticated.get("/dev/token").status_code == 200
 
 
+def test_dev_token_matches_runtime_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("REDACTION_PRODUCTION_TOKEN", "runtime-secret-token")
+    response = TestClient(app, raise_server_exceptions=False).get("/dev/token")
+    assert response.status_code == 200
+    assert response.json() == {"token": "runtime-secret-token"}
+
+
 def test_text_request_creates_reviewable_job_and_download() -> None:
     response = client.post("/v1/redact", json={
         "text": "Send jane@example.com the report.",

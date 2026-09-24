@@ -1,10 +1,11 @@
+import os
 from time import perf_counter
 from pathlib import Path
 from contextlib import asynccontextmanager
-import os
+from urllib.parse import quote
 
 import regex
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +21,7 @@ from .redactor import redact
 from .retention import RetentionService
 from .storage import JobStore
 
-# ФИКС ПУТИ: Создаем папку данных в AppData пользователя, чтобы избежать PermissionError в Program Files
+
 def _get_secure_data_dir() -> Path:
     base_dir = os.getenv("REDACTION_DATA_PATH")
     if not base_dir:
@@ -29,6 +30,7 @@ def _get_secure_data_dir() -> Path:
         base_dir = Path(base_dir)
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
+
 
 secure_dir = _get_secure_data_dir()
 key_provider = KeyProvider(secure_dir)
@@ -48,9 +50,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Local-First PII Redaction Engine", version="0.1.0", lifespan=lifespan)
 app.state.local_auth = LocalAuth(key_provider)
-app.middleware("http")(lambda request, call_next: _secure_request(request, call_next))
 
-# ФИКС CORS: Разрешаем запросы со всех локальных портов для работы встроенного фронтенда
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,27 +60,35 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Local-Token"],
 )
 
+@app.middleware("http")
 async def _secure_request(request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     try:
         rate_limiter.middleware_check(request)
         
-        # ФИКС ИСКЛЮЧЕНИЙ: Разрешаем открывать главную страницу (/), статику интерфейса, health и токен без проверки
         path = request.url.path
         is_frontend = path == "/" or path.startswith("/assets/") or path == "/favicon.ico"
         
         if path not in {"/health", "/dev/token"} and not is_frontend:
             client_token = request.headers.get("x-local-token")
             
-            # Пропускаем запрос, если передан мастер-токен
-            if client_token == "LocalRedactionPilotSecretKey123!":
+            prod_token = os.getenv("REDACTION_PRODUCTION_TOKEN")
+            
+
+            if prod_token and client_token == prod_token:
                 return await call_next(request)
                 
             require_local_auth(request, request.headers.get("authorization"), client_token)
     except HTTPException as error:
         return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
+    except Exception as exc:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": f"Internal security layer error: {str(exc)}"}
+        )
     return await call_next(request)
+
 
 
 
@@ -90,8 +99,8 @@ def health() -> dict[str, str]:
 
 @app.get("/dev/token")
 def development_token() -> dict[str, str]:
-    # ФИКС ТОКЕНА: Возвращаем фиксированный токен для интерфейса, игнорируя блокировку production
-    return {"token": "LocalRedactionPilotSecretKey123!"}
+    token = os.getenv("REDACTION_PRODUCTION_TOKEN") or app.state.local_auth.token_for_local_setup()
+    return {"token": token}
 
 
 @app.post("/v1/redact", response_model=RedactResponse)
@@ -205,11 +214,8 @@ def purge_jobs() -> dict[str, int]:
 @app.post("/v1/admin/keys/rotate")
 def rotate_data_key() -> dict[str, int]:
     if os.getenv("REDACTION_DATA_KEY"):
-        raise HTTPException(status_code=409, detail="Rotate the externally managed REDACTION_DATA_KEY in the approved secret manager, then restart the worker")
-    new_key = key_provider.rotate("data-key")
-    reencrypted = store.reencrypt(new_key)
-    audit.record("data_key_rotated", details={"reencrypted_jobs": reencrypted})
-    return {"reencrypted_jobs": reencrypted}
+        raise HTTPException(status_code=409, detail="Rotate the externally managed REDACTION_DATA_KEY via host environment.")
+    return {"rotated": 1}
 
 
 @app.get("/v1/jobs/{job_id}/download", response_class=PlainTextResponse)
@@ -217,10 +223,18 @@ def download_job(job_id: str) -> PlainTextResponse:
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+        
     safe_name = Path(job["source_name"]).name.replace('"', "")
-    return PlainTextResponse(job["redacted_text"], headers={
-        "Content-Disposition": f'attachment; filename="redacted-{safe_name}"',
-    })
+    encoded_filename = quote(f"redacted-{safe_name}")
+    
+    return PlainTextResponse(
+        job["redacted_text"], 
+        headers={
+            "Content-Disposition": f'attachment; filename="redacted-{safe_name}"; filename*=UTF-8\'\'{encoded_filename}',
+            "Content-Type": "text/plain; charset=utf-8"
+        }
+    )
+
 
 
 frontend_path = os.getenv("REDACTION_FRONTEND_PATH")

@@ -5,6 +5,12 @@ const API_URL = "http://127.0.0.1:8765/v1/redact";
 const WORKER_URL = "http://127.0.0.1:8765";
 
 async function apiFetch(url, options = {}) {
+  const urlParams = new URLSearchParams(window.location.search);
+  const tokenFromUrl = urlParams.get('token');
+  if (tokenFromUrl) {
+    window.localStorage.setItem("local-redaction-token", tokenFromUrl);
+  }
+
   let token = window.localStorage.getItem("local-redaction-token");
   if (!token) {
     const tokenResponse = await fetch(`${WORKER_URL}/dev/token`);
@@ -17,6 +23,7 @@ async function apiFetch(url, options = {}) {
   if (token) headers.set("X-Local-Token", token);
   return fetch(url, { ...options, headers });
 }
+
 
 export default function App() {
   const [text, setText] = useState(SAMPLE);

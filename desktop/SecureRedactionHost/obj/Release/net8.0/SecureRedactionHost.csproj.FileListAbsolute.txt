@@ -1,0 +1,15 @@
+C:\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0\SecureRedactionHost.exe
+C:\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0\SecureRedactionHost.deps.json
+C:\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0\SecureRedactionHost.runtimeconfig.json
+C:\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0\SecureRedactionHost.dll
+C:\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0\SecureRedactionHost.pdb
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.GeneratedMSBuildEditorConfig.editorconfig
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.AssemblyInfoInputs.cache
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.AssemblyInfo.cs
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.csproj.CoreCompileInputs.cache
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.sourcelink.json
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.dll
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\refint\SecureRedactionHost.dll
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.pdb
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\SecureRedactionHost.genruntimeconfig.cache
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\ref\SecureRedactionHost.dll

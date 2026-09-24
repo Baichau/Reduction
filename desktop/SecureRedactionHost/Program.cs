@@ -8,7 +8,8 @@ public sealed class PythonWorker : IAsyncDisposable
 
     private PythonWorker(Process process) => this.process = process;
 
-    public static PythonWorker Start(string pythonExecutable, string workingDirectory)
+    // ФИКС: Принимаем сгенерированный динамический токен безопасности
+    public static PythonWorker Start(string pythonExecutable, string workingDirectory, string secureToken)
     {
         var expectedHash = Environment.GetEnvironmentVariable("REDACTION_WORKER_SHA256");
         if (!string.IsNullOrWhiteSpace(expectedHash) && File.Exists(pythonExecutable))
@@ -25,10 +26,15 @@ public sealed class PythonWorker : IAsyncDisposable
             FileName = pythonExecutable,
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
-            CreateNoWindow = true,
+            CreateNoWindow = true,         // ФИКС: Запрещаем создавать новое окно консоли воркера
+            WindowStyle = ProcessWindowStyle.Hidden, // ФИКС: Полностью прячем процесс в фон
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+
+        // ФИКС: Безопасно передаем сгенерированный токен воркеру через переменные окружения процесса
+        startInfo.Environment["REDACTION_PRODUCTION_TOKEN"] = secureToken;
+
         var frontendPath = Path.GetFullPath(Path.Combine(workingDirectory, "..", "frontend"));
         if (Directory.Exists(frontendPath))
         {
@@ -101,9 +107,15 @@ public static class Program
         var packagedWorker = Path.Combine(installRoot, "worker", "LocalRedactionWorker.exe");
         var pythonExecutable = Environment.GetEnvironmentVariable("REDACTION_PYTHON_PATH")
             ?? (File.Exists(packagedWorker) ? packagedWorker : "py");
-        await using var worker = PythonWorker.Start(pythonExecutable, backendPath);
-        Console.WriteLine("Local redaction worker started on http://127.0.0.1:8765. Press Ctrl+C to stop.");
-        Process.Start(new ProcessStartInfo("http://127.0.0.1:8765") { UseShellExecute = true });
+
+        string secureToken = Guid.NewGuid().ToString("N");
+
+        await using var worker = PythonWorker.Start(pythonExecutable, backendPath, secureToken);
+        Console.WriteLine("Local redaction worker running securely in background.");
+        
+        string appUrl = $"http://127.0.0.1:8765/?token={Uri.EscapeDataString(secureToken)}";
+        Console.WriteLine($"Opening application interface: {appUrl}");
+        Process.Start(new ProcessStartInfo(appUrl) { UseShellExecute = true });
 
         using var shutdown = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>

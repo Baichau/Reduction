@@ -392,3 +392,4 @@ C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\win-x64\refint\Secur
 C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\win-x64\SecureRedactionHost.pdb
 C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\win-x64\SecureRedactionHost.genruntimeconfig.cache
 C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\win-x64\ref\SecureRedactionHost.dll
+C:\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0\win-x64\SecureRedactionHost.sourcelink.json
