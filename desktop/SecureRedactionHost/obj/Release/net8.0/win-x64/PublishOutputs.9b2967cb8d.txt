@@ -1,0 +1,2 @@
+C:\Users\Lenovo\OneDrive\Desktop\secure project\dist\host\SecureRedactionHost.pdb
+C:\Users\Lenovo\OneDrive\Desktop\secure project\dist\host\SecureRedactionHost.exe

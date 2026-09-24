@@ -1,0 +1,35 @@
+# Python / Виртуальное окружение
+__pycache__/
+*.py[cod]
+*$py.class
+backend/.venv/
+.venv/
+venv/
+ENV/
+
+# Node.js / Фронтенд
+node_modules/
+/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# PyInstaller и результаты сборки
+/build/
+/dist/
+*.manifest
+*.spec
+
+# Локальные данные и ключи (КРИТИЧЕСКО С ДЛЯ БЕЗОПАСНОСТИ!)
+**/data/
+*.key
+*.db
+*.log
+local-redaction-token
+
+# IDE и системные файлы Windows
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

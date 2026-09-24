@@ -1,0 +1,74 @@
+name: security-and-build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install backend dependencies
+        run: python -m pip install --requirement requirements.txt
+      - name: Run backend tests
+        run: python -m pytest
+      - name: Dependency audit
+        run: python -m pip install pip-audit; pip-audit -r requirements.txt
+
+  frontend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run build
+
+  worker:
+    runs-on: windows-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build worker artifact
+        shell: pwsh
+        run: .\scripts\build-worker.ps1
+      - name: Generate artifact hash
+        shell: pwsh
+        run: Get-ChildItem -Recurse dist/worker | Where-Object { -not $_.PSIsContainer } | Get-FileHash -Algorithm SHA256 | ConvertTo-Json | Out-File dist/worker/SHA256SUMS.json
+      - name: Signing hook
+        shell: pwsh
+        run: .\scripts\sign-artifact.ps1 -Path dist/worker/LocalRedactionWorker/LocalRedactionWorker.exe -AllowUnsigned
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-redaction-worker
+          path: dist/worker
+
+  dotnet:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build desktop host
+        run: dotnet build desktop/SecureRedactionHost/SecureRedactionHost.csproj --configuration Release
