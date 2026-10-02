@@ -1,0 +1,15 @@
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0-windows\SecureRedactionHost.exe
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0-windows\SecureRedactionHost.deps.json
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0-windows\SecureRedactionHost.runtimeconfig.json
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0-windows\SecureRedactionHost.dll
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\bin\Release\net8.0-windows\SecureRedactionHost.pdb
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.AssemblyInfoInputs.cache
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.AssemblyInfo.cs
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.csproj.CoreCompileInputs.cache
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.sourcelink.json
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.dll
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\refint\SecureRedactionHost.dll
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.pdb
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\SecureRedactionHost.genruntimeconfig.cache
+C:\Users\Lenovo\OneDrive\Desktop\projects\Reduction\desktop\SecureRedactionHost\obj\Release\net8.0-windows\ref\SecureRedactionHost.dll

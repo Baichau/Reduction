@@ -1,2 +1,0 @@
-C:\Reduction\dist\host\SecureRedactionHost.pdb
-C:\Reduction\dist\host\SecureRedactionHost.exe

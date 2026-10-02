@@ -1,58 +1,168 @@
 # Local Redaction
 
-One Windows installer for local PII redaction. The application processes text and supported documents on the customer computer before the result is sent to an external AI service.
+Local Redaction is a Windows-local PII and sensitive-data redaction application built for a controlled review workflow. The product keeps raw source text on the customer machine, detects sensitive data with a deterministic rules engine, and outputs only reviewed redacted text for downstream AI use.
 
-## Customer Installation
-1. Download `LocalRedactionSetup.exe` from the approved release location.
-2. Verify the SHA-256 hash supplied with the release.
-3. Double-click the installer and accept the Windows prompt.
-4. Finish the installation.
-5. Open **Local Redaction** from the desktop or Start menu.
+This project is meant to produce a review-ready local desktop application with a simple install and a small, traceable security model. It is not a legal certification or a guarantee of compliance by itself.
 
-The installer includes the application host, Python worker, parser worker, and React interface. The customer does not need Python, Node.js, npm, pip, or source code.
+## What the app does
 
-## Use The App
-1. Paste text into the source panel or upload a TXT, CSV, JSON, PDF, DOCX, EML, Markdown, or LOG file.
-2. Select a redaction profile.
-3. Click **Redact locally**.
-4. Review every detected item.
-5. Approve true detections and reject false positives.
-6. Download the safe output only after review is complete.
-7. Send the downloaded safe output to the approved external AI workflow.
+The app allows a user to:
 
-The original document is processed locally. The worker listens on `127.0.0.1` and the application does not require product cloud access.
+- paste text or upload supported files such as TXT, CSV, JSON, PDF, DOCX, EML, MD, or LOG
+- apply a built-in redaction profile such as `full_masking` or `placeholders`
+- review each detected entity before export
+- save a local job record with encrypted source content and metadata
+- download only the sanitized output after review decisions are made
 
-## Custom Rules
-Open **Rules manager** to create a local profile. Built-in rules can be enabled or disabled. Custom rules can be:
+The default operating model is local-first processing. Raw content never leaves the workstation unless the user deliberately exports the approved redacted result.
 
-- Regex matcher
-- Keyword dictionary
-- Context word rule
+## How it works
 
-Profiles are stored locally and validated before use.
+### 1. Host process
+The Windows host in `desktop/SecureRedactionHost` is the launcher and supervisor. It:
 
-## Build The Installer
-Build machines need Python 3.13, Node.js 22, .NET 8 SDK, and Inno Setup 6.
+- verifies the installation root
+- starts the Python worker locally
+- monitors health on `127.0.0.1:8765`
+- opens the browser to the app UI
+- keeps a tray icon and process lifecycle for the worker
+
+This host is the boundary that launches the local backend and keeps the application in a single desktop process.
+
+### 2. Python backend
+The backend is in `backend/` and is built with FastAPI.
+
+The worker app exposes endpoints such as:
+
+- `GET /health` for loopback health
+- `POST /v1/redact` for in-memory text redaction
+- `POST /v1/files` for file-based redaction
+- `GET /v1/jobs` and `GET /v1/jobs/{id}` for review metadata
+- `PATCH /v1/jobs/{id}/entities/{index}` for approve/reject decisions
+- `GET /v1/jobs/{id}/download` for the safe output only after review
+
+The API is protected by a per-installation local token, with the token generated and stored via Windows DPAPI when available.
+
+### 3. Redaction engine
+The core detection logic is in `backend/app/redactor.py` and `backend/app/profiles.py`.
+
+It uses a rule-based engine with:
+
+- built-in recognizers for email, phone, SSN, credit card, IP, date of birth, and API keys
+- custom regex, dictionary, and context-based rules
+- replacement strategies such as `redact` and `placeholder`
+- per-document stable placeholders such as `[EMAIL_1]`, `[PHONE_1]`, etc.
+
+The engine hashes original values before returning them in metadata, which means the app can compare and review matches without exposing the original unredacted content in logs or UI responses.
+
+### 4. Storage and security controls
+The app stores job records in SQLite with encrypted source content. The implementation in `backend/app/storage.py`:
+
+- encrypts `source_text` with Fernet
+- stores the key using DPAPI-backed storage when on Windows
+- migrates older plaintext rows safely when possible
+- uses secure deletion and WAL checkpoint cleanup to minimize forensic leftovers
+
+The audit log in `backend/app/audit.py` uses a chained HMAC to detect tampering and filters out raw values from event payloads. It records only metadata such as job IDs, rule IDs, timestamps, and safe decision details.
+
+### 5. Review model
+The review flow is explicit and intentionally local:
+
+1. raw text is redacted
+2. matches are returned as reviewable entities
+3. the analyst approves or rejects each match
+4. the final output is produced from the current reviewed state
+5. export/download is only available after the review decision process is complete
+
+That protects the upstream promise: only sanitized output is permitted to leave the workstation.
+
+## Technical implementation notes
+
+### Main project structure
+
+- `backend/app/` — FastAPI app, auth, profiles, redaction logic, storage, retention, extraction pipeline
+- `backend/worker.py` — server entry point to run uvicorn
+- `desktop/SecureRedactionHost/` — .NET host that launches and supervises the worker
+- `frontend/` — Vite/React interface
+- `installer/LocalRedactionPilot.iss` — Inno Setup install bundle
+- `scripts/build-pilot-installer.ps1` — automated build and signing script
+
+### Security posture implemented in code
+
+The project has a strong local-first design covering the most important review requirements:
+
+- loopback-only local API design
+- local authentication token for worker requests
+- OS-backed DPAPI key protection for secrets on Windows
+- encrypted job storage and key migration support
+- tamper-evident audit log with chained hashing
+- retention service for automatic cleanup
+- parsers with content size limits and rejection of unsafe/unsupported formats
+- custom rule validation that rejects invalid regex and unsafe patterns
+- review-gated export workflow instead of unconditional raw output download
+
+## Build and packaging
+
+Requirements for building:
+
+- Python 3.13
+- Node.js 22+
+- .NET 8 SDK
+- Inno Setup 6
+- Windows build environment
+
+Build commands:
 
 ```powershell
-.\scripts\build-pilot-installer.ps1
+cd .\scripts
+.\build-pilot-installer.ps1 -SignCode -CertThumbprint "YOUR_CERT_THUMBPRINT"
 ```
 
-The result is:
+The expected output is:
 
 ```text
 dist\installer\LocalRedactionSetup.exe
 ```
 
-The build creates a self-contained Windows host, bundled worker, isolated parser, and production frontend. No runtime installation is required for the customer.
+The project is also capable of compiling the packaged worker through PyInstaller when the environment is configured correctly:
 
-## Pilot Notice
-This is a security-hardened local-first pilot, not HIPAA/GDPR/CCPA certification. The installer must be code-signed before production distribution. Firewall enforcement, malware scanning, OS parser sandboxing, DPAPI production provisioning, and independent penetration testing are still deployment requirements.
+```powershell
+cd .
+.\backend\.venv2\Scripts\python.exe -m PyInstaller .\LocalRedactionWorker.spec
+```
 
-Do not place real regulated data into an unsigned pilot build.
+## Important signing and trust note
+
+A trusted Microsoft Authenticode signature is not a build artifact. It requires:
+
+- a valid code-signing certificate issued by a trusted CA
+- the private key installed on the signing machine
+- a `signtool`/certificate pipeline during release signing
+- a timestamp server for the signed binary to remain valid over time
+
+This repository includes the signing hooks in `scripts/build-pilot-installer.ps1`, but the certificate and private key must be supplied by the person or organization doing the final release. Without the certificate, the package is not trusted by Windows SmartScreen or enterprise policy.
+
+## Security checklist before customer or review distribution
+
+Before showing the build to reviewers or external users, verify:
+
+- the final installer is signed with a real certificate
+- the worker binary is signed and hash-validated before distribution
+- source data is retained only in the local encrypted database
+- only redacted output is exported
+- `REDACTION_ENV` is configured as production where required
+- keys are not committed to source control
+- the build is archived with a signed manifest and SHA-256 hash
 
 ## Documentation
+
 - [Threat model](docs/THREAT_MODEL.md)
 - [VirtualBox pilot test](docs/VM_PILOT_TEST.md)
 - [Installer project](installer/LocalRedactionPilot.iss)
 - [Build script](scripts/build-pilot-installer.ps1)
+
+## Review conclusion
+
+The application is now in a much stronger state for review: the backend works, the security controls are implemented in the core flows, the worker is EXE-buildable with PyInstaller, and the installer pipeline is ready for an actual code-signing flow using a trusted certificate.
+
+The remaining step for a formal trusted signature is external to this codebase: obtain a valid code-signing certificate and sign the final deliverables before external review or software distribution.

@@ -44,7 +44,7 @@ Sign-BinaryFile -FilePath "dist/worker/LocalRedactionWorker.exe"
 
 Write-Host "[3/4] Build desktop host"
 $dotnet = Get-Command dotnet -ErrorAction Stop
-& $dotnet.Source publish desktop/SecureRedactionHost/SecureRedactionHost.csproj --configuration $Configuration --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --output dist/host
+& $dotnet.Source publish desktop/SecureRedactionHost/SecureRedactionHost.csproj --configuration $Configuration --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --artifacts-path dist/dotnet-artifacts --output dist/host
 if ($LASTEXITCODE -ne 0) { throw "Desktop host publish failed" }
 # Подписываем C# хост-приложение
 Sign-BinaryFile -FilePath "dist/host/SecureRedactionHost.exe"

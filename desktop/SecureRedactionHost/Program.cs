@@ -1,152 +1,204 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Security;
-using System.Security.Cryptography;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
-// Оборачиваем класс воркера, чтобы он был доступен внутри сборки
-internal sealed class PythonWorker : IAsyncDisposable
+namespace SecureRedactionHost;
+
+internal static class Program
 {
-    private readonly Process process;
+    private const int WorkerPort = 8765;
+    private const string HealthUrl = "http://127.0.0.1:8765/health";
 
-    private PythonWorker(Process process) => this.process = process;
-
-    public static PythonWorker Start(string pythonExecutable, string workingDirectory, string secureToken)
+    [STAThread]
+    public static async Task Main()
     {
-        var expectedHash = Environment.GetEnvironmentVariable("REDACTION_WORKER_SHA256");
-        if (!string.IsNullOrWhiteSpace(expectedHash) && File.Exists(pythonExecutable))
+        ApplicationConfiguration.Initialize();
+
+        using var singleInstance = new Mutex(
+            initiallyOwned: true,
+            name: @"Global\LocalRedactionHost_v1",
+            createdNew: out bool isFirstInstance);
+
+        if (!isFirstInstance)
         {
-            var actualHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(pythonExecutable)));
-            if (!actualHash.Equals(expectedHash.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                throw new SecurityException("The configured worker executable hash does not match REDACTION_WORKER_SHA256.");
-            }
-        }
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = pythonExecutable,
-            WorkingDirectory = workingDirectory,
-            UseShellExecute = false,
-            CreateNoWindow = true,         // Запрещаем создавать новое окно консоли воркера
-            WindowStyle = ProcessWindowStyle.Hidden, // Полностью прячем процесс в фон
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-
-        // Безопасно передаем сгенерированный токен воркеру через переменные окружения процесса
-        startInfo.Environment["REDACTION_PRODUCTION_TOKEN"] = secureToken;
-
-        var frontendPath = Path.GetFullPath(Path.Combine(workingDirectory, "..", "frontend"));
-        if (Directory.Exists(frontendPath))
-        {
-            startInfo.Environment["REDACTION_FRONTEND_PATH"] = frontendPath;
-        }
-
-        // КРИТИЧЕСКИЙ ФИКС ДЛЯ ОШИБКИ SQLITE3: Создаем папку data до старта Python
-        var dataDirectory = Path.Combine(workingDirectory, "data");
-        Directory.CreateDirectory(dataDirectory);
-
-        startInfo.Environment["REDACTION_DB_PATH"] = Path.Combine(dataDirectory, "redaction.db");
-        startInfo.Environment["REDACTION_PROFILES_PATH"] = Path.Combine(dataDirectory, "profiles.json");
-        
-        var parserPath = Path.Combine(Path.GetDirectoryName(pythonExecutable) ?? workingDirectory, "LocalRedactionParser.exe");
-        if (File.Exists(parserPath))
-        {
-            startInfo.Environment["REDACTION_PARSER_PATH"] = parserPath;
-        }
-
-        if (!Path.GetExtension(pythonExecutable).Equals(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            startInfo.ArgumentList.Add("-m");
-            startInfo.ArgumentList.Add("uvicorn");
-            startInfo.ArgumentList.Add("app.main:app");
-            startInfo.ArgumentList.Add("--host");
-            startInfo.ArgumentList.Add("127.0.0.1");
-            startInfo.ArgumentList.Add("--port");
-            startInfo.ArgumentList.Add("8765");
-        }
-
-        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start Python worker.");
-        process.EnableRaisingEvents = true;
-        process.Exited += (_, _) => Console.Error.WriteLine($"[worker] exited with code {process.ExitCode}");
-        process.OutputDataReceived += (_, eventArgs) => { if (eventArgs.Data is not null) Console.WriteLine($"[worker] {eventArgs.Data}"); };
-        process.ErrorDataReceived += (_, eventArgs) => { if (eventArgs.Data is not null) Console.Error.WriteLine($"[worker] {eventArgs.Data}"); };
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        return new PythonWorker(process);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (process.HasExited)
-        {
-            process.Dispose();
+            OpenBrowser($"http://127.0.0.1:{WorkerPort}");
             return;
         }
 
-        process.CloseMainWindow();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try
+        var root = FindInstallRoot();
+        if (root is null)
         {
-            await process.WaitForExitAsync(timeout.Token);
+            ShowFatal("Couldn't locate the LocalRedaction install folder.", null);
+            return;
         }
-        catch (OperationCanceledException)
-        {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
-        }
-        finally
-        {
-            process.Dispose();
-        }
-    }
-}
+        ClearStaleWorkerProcesses(root);
+        HostLog.Info($"Install root: {root}");
 
-// Классическое объявление главной точки входа
-public static class Program
-{
-    public static async Task Main()
-    {
-        var installRoot = Environment.GetEnvironmentVariable("REDACTION_INSTALL_ROOT")
-            ?? (Directory.Exists(Path.Combine(AppContext.BaseDirectory, "backend"))
-                ? AppContext.BaseDirectory
-                : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..")));
-        var backendPath = Path.Combine(installRoot, "backend");
-        var packagedWorker = Path.Combine(installRoot, "worker", "LocalRedactionWorker.exe");
+        var backendPath = Path.Combine(root, "backend");
+        if (!Directory.Exists(backendPath))
+        {
+            ShowFatal($"Backend folder not found at:\n{backendPath}", null);
+            return;
+        }
+
+        var workerCandidates = new[]
+        {
+            Path.Combine(root, "dist", "worker", "LocalRedactionWorker", "LocalRedactionWorker.exe"),
+            Path.Combine(root, "worker", "LocalRedactionWorker", "LocalRedactionWorker.exe"),
+            Path.Combine(root, "dist", "worker", "LocalRedactionWorker.exe"),
+            Path.Combine(root, "worker", "LocalRedactionWorker.exe"),
+        };
+
+        string? packagedWorker = null;
+        foreach (var c in workerCandidates)
+            if (File.Exists(c)) { packagedWorker = c; break; }
+
         var pythonExecutable = Environment.GetEnvironmentVariable("REDACTION_PYTHON_PATH")
-            ?? (File.Exists(packagedWorker) ? packagedWorker : "py");
+            ?? packagedWorker ?? "py";
+
+        HostLog.Info($"Worker executable: {pythonExecutable}");
 
         string secureToken = Guid.NewGuid().ToString("N");
 
-        await using var worker = PythonWorker.Start(pythonExecutable, backendPath, secureToken);
-        Console.WriteLine("Local redaction worker running securely in background.");
-        
-        // ЖЕСТКИЙ ФИКС ОПЕЧАТКИ: Безопасно собираем URL через UriBuilder
-        var urlBuilder = new UriBuilder("http", "127.0.0.1", 8765)
+        PythonWorker worker;
+        try { worker = PythonWorker.Start(pythonExecutable, backendPath, secureToken); }
+        catch (Exception ex)
         {
-            Query = $"token={Uri.EscapeDataString(secureToken)}"
-        };
-        string appUrl = urlBuilder.ToString();
-        
-        Console.WriteLine($"Opening application interface: {appUrl}");
-        Process.Start(new ProcessStartInfo(appUrl) { UseShellExecute = true });
-
-        using var shutdown = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, eventArgs) =>
-        {
-            eventArgs.Cancel = true;
-            shutdown.Cancel();
-        };
-
-        try
-        {
-            await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token);
+            HostLog.Error($"Failed to start worker: {ex}");
+            ShowFatal("LocalRedaction couldn't start the background worker.", ex);
+            return;
         }
-        catch (OperationCanceledException)
+
+        await using (worker)
         {
+            if (!await WaitForHealthAsync(worker.Process, TimeSpan.FromSeconds(20)))
+            {
+                HostLog.Error("Worker failed health check.");
+                ShowFatal("LocalRedaction couldn't start.\n\nThe background worker did not respond in time.", null);
+                return;
+            }
+
+            var urlBuilder = new UriBuilder("http", "127.0.0.1", WorkerPort)
+            { Query = $"token={Uri.EscapeDataString(secureToken)}" };
+            string appUrl = urlBuilder.ToString();
+
+            HostLog.Info($"Opening application interface: {appUrl}");
+            OpenBrowser(appUrl);
+
+            using var tray = BuildTrayIcon(appUrl);
+            Application.Run();
         }
+    }
+
+    private static string? FindInstallRoot()
+    {
+        var env = Environment.GetEnvironmentVariable("REDACTION_INSTALL_ROOT");
+        if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return env;
+
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (int i = 0; i < 8 && dir is not null; i++)
+        {
+            bool hasBackend = Directory.Exists(Path.Combine(dir.FullName, "backend"));
+            bool hasDist = Directory.Exists(Path.Combine(dir.FullName, "dist"));
+            bool hasFrontend = Directory.Exists(Path.Combine(dir.FullName, "frontend"));
+            if (hasBackend && (hasDist || hasFrontend)) return dir.FullName;
+            dir = dir.Parent;
+        }
+        var guess = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", ".."));
+        if (Directory.Exists(Path.Combine(guess, "backend"))) return guess;
+        return null;
+    }
+
+    private static NotifyIcon BuildTrayIcon(string appUrl)
+    {
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Resources", "app.ico");
+        var tray = new NotifyIcon
+        {
+            Icon = File.Exists(iconPath)
+                ? new System.Drawing.Icon(iconPath)
+                : System.Drawing.SystemIcons.Application,
+            Visible = true,
+            Text = "LocalRedaction — running",
+        };
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Open",      null, (_, _) => OpenBrowser(appUrl));
+        menu.Items.Add("Open logs", null, (_, _) => Process.Start("explorer.exe", HostLog.Folder));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Quit",      null, (_, _) => Application.Exit());
+        tray.ContextMenuStrip = menu;
+        tray.DoubleClick += (_, _) => OpenBrowser(appUrl);
+        tray.BalloonTipTitle = "LocalRedaction is running";
+        tray.BalloonTipText  = "Double-click the tray icon to reopen the app.";
+        tray.ShowBalloonTip(3000);
+        return tray;
+    }
+
+    private static void OpenBrowser(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { HostLog.Error($"Failed to open browser: {ex}"); }
+    }
+
+    private static void ClearStaleWorkerProcesses(string installRoot)
+    {
+        var expectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.GetFullPath(Path.Combine(installRoot, "worker", "LocalRedactionWorker.exe")),
+            Path.GetFullPath(Path.Combine(installRoot, "dist", "worker", "LocalRedactionWorker", "LocalRedactionWorker.exe")),
+            Path.GetFullPath(Path.Combine(installRoot, "dist", "worker", "LocalRedactionWorker.exe")),
+        };
+
+        foreach (var process in Process.GetProcessesByName("LocalRedactionWorker"))
+        {
+            using (process)
+            {
+                try
+                {
+                    var executablePath = process.MainModule?.FileName;
+                    if (executablePath is null || !expectedPaths.Contains(Path.GetFullPath(executablePath)))
+                        continue;
+
+                    HostLog.Info($"Stopping stale worker process {process.Id} from this installation.");
+                    process.Kill(entireProcessTree: true);
+                    if (!process.WaitForExit(5000))
+                        HostLog.Error($"Stale worker process {process.Id} did not exit in time.");
+                }
+                catch (Exception ex)
+                {
+                    HostLog.Error($"Failed to stop stale worker process {process.Id}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private static async Task<bool> WaitForHealthAsync(Process proc, TimeSpan timeout)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (proc.HasExited) return false;
+            try
+            {
+                using var r = await http.GetAsync(HealthUrl);
+                if (r.IsSuccessStatusCode) return true;
+            }
+            catch (HttpRequestException) { }
+            catch (TaskCanceledException) { }
+            await Task.Delay(250);
+        }
+        return false;
+    }
+
+    private static void ShowFatal(string message, Exception? detail)
+    {
+        var body = detail is null
+            ? $"{message}\n\nLogs:\n{HostLog.Folder}"
+            : $"{message}\n\n{detail.Message}\n\nLogs:\n{HostLog.Folder}";
+        MessageBox.Show(body, "LocalRedaction", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 }

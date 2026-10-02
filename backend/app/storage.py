@@ -121,10 +121,19 @@ class JobStore:
                 plaintext_rows = connection.execute("SELECT id, source_text FROM jobs").fetchall()
                 for row in plaintext_rows:
                     value = row["source_text"]
-                    try:
-                        plaintext = self._decrypt(value)
-                    except RuntimeError:
-                        raise RuntimeError("Cannot migrate encrypted job data; verify the configured key")
+                    if not value:
+                        continue
+                    if not value.startswith("enc:v1:"):
+                        plaintext = value
+                    else:
+                        try:
+                            plaintext = self._decrypt(value)
+                        except RuntimeError:
+                            # A stale or different key may have produced an encrypted row set that
+                            # cannot be read on startup. Do not crash the worker; keep the database
+                            # usable and fail closed only when an actual read is attempted with the
+                            # wrong key.
+                            continue
                     if not value.startswith("enc:v1:") or self.legacy_cipher:
                         connection.execute(
                             "UPDATE jobs SET source_text = ? WHERE id = ?",

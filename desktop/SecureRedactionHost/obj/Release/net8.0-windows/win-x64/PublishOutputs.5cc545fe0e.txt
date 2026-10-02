@@ -1,0 +1,7 @@
+C:\Reduction\dist\host\SecureRedactionHost.pdb
+C:\Reduction\dist\host\D3DCompiler_47_cor3.dll
+C:\Reduction\dist\host\PenImc_cor3.dll
+C:\Reduction\dist\host\PresentationNative_cor3.dll
+C:\Reduction\dist\host\vcruntime140_cor3.dll
+C:\Reduction\dist\host\wpfgfx_cor3.dll
+C:\Reduction\dist\host\SecureRedactionHost.exe

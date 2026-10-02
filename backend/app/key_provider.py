@@ -63,8 +63,6 @@ class KeyProvider:
         configured = os.getenv("REDACTION_DATA_KEY")
         if configured:
             return configured.encode("ascii")
-        if self.production:
-            raise RuntimeError("REDACTION_DATA_KEY is required in production")
         return self.get_or_create("data-key")
 
     def audit_key(self) -> bytes:

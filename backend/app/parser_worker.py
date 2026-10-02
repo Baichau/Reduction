@@ -2,7 +2,7 @@ import base64
 import json
 import sys
 
-from .extractors import extract_text_in_process
+from app.extractors import extract_text_in_process
 
 
 def main() -> None:
